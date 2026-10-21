@@ -1,0 +1,58 @@
+# Türkiye OSM verisinden Kroki uygulamasının çevrimdışı harita karolarını üretir ve
+# GitHub Pages'e yayınlar. Her ayın 2'sinde ve elle tetiklenince çalışır.
+name: Harita verisi
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 2 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install shapely
+      - name: Türkiye OSM verisi (Geofabrik)
+        run: curl -sSL --retry 3 -o turkey.osm.pbf https://download.geofabrik.de/europe/turkey-latest.osm.pbf
+      - name: Karolar
+        run: node --max-old-space-size=6000 build_offline.mjs turkey.osm.pbf out
+      - name: İl sınırları ve yer adı dizini
+        run: python build_provinces.py out
+      - name: Site
+        run: |
+          mkdir -p _site
+          cp -r site/. _site/
+          # Uygulama veriyi kök adresten okur: provinces.json, index.json, places.json.gz, tiles/
+          cp -r out/. _site/
+          touch _site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
